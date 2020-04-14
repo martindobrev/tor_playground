@@ -29,9 +29,6 @@ See the Apache 2 License for the specific language governing permissions and lim
 
 package com.msopentech.thali.toronionproxy;
 
-import com.msopentech.thali.toronionproxy.OsData;
-import com.msopentech.thali.toronionproxy.WriteObserver;
-import com.sun.nio.file.SensitivityWatchEventModifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,7 +68,7 @@ public class JavaWatchObserver implements WriteObserver {
             // http://stackoverflow.com/questions/9588737/is-java-7-watchservice-slow-for-anyone-else
             key = fileToWatch.getParentFile().toPath().register(watchService, new WatchEvent.Kind[]
                     {StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_DELETE,
-                    StandardWatchEventKinds.ENTRY_MODIFY}, SensitivityWatchEventModifier.HIGH);
+                    StandardWatchEventKinds.ENTRY_MODIFY});
         }
     }
 
