@@ -13,214 +13,193 @@ See the Apache 2 License for the specific language governing permissions and lim
 
 package com.msopentech.thali.toronionproxy;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
- * Provides context information about the environment. Implementating classes provide logic for setting up
- * the specific environment
+ * This class encapsulates data that is handled differently in Java and Android as well
+ * as managing file locations.
  */
 abstract public class OnionProxyContext {
+    protected final static String hiddenserviceDirectoryName = "hiddenservice";
+    protected final static String geoIpName = "geoip";
+    protected final static String geoIpv6Name = "geoip6";
+    protected final static String torrcName = "torrc";
+    protected final File workingDirectory;
+    protected final File geoIpFile;
+    protected final File geoIpv6File;
+    protected final File torrcFile;
+    protected final File torExecutableFile;
+    protected final File cookieFile;
+    protected final File hostnameFile;
 
-
-    protected static final Logger LOG = LoggerFactory.getLogger(OnionProxyContext.class);
-
-    /**
-     * Tor configuration info used for running and installing tor
-     */
-    protected final TorConfig config;
-
-    private final Object dataDirLock = new Object();
-
-    private final Object dnsLock = new Object();
-
-    private final Object cookieLock = new Object();
-
-    private final Object hostnameLock = new Object();
-
-    private final TorSettings settings;
-
-    private final TorInstaller torInstaller;
-
-    /**
-     * Constructs instance of <code>OnionProxyContext</code> with specified configDir. Use this constructor when
-     * all tor files (including the executable) are under a single directory. Currently, this is used with installers
-     * that assemble all necessary files into one location.
-     *
-     * @param configDir
-     * @throws IllegalArgumentException if specified config in null
-     */
-    public OnionProxyContext(File configDir, TorInstaller torInstaller) {
-        this(TorConfig.createDefault(configDir), torInstaller, null);
+    public OnionProxyContext(File workingDirectory) {
+        this.workingDirectory = workingDirectory;
+        geoIpFile = new File(getWorkingDirectory(), geoIpName);
+        geoIpv6File = new File(getWorkingDirectory(), geoIpv6Name);
+        torrcFile = new File(getWorkingDirectory(), torrcName);
+        torExecutableFile = new File(getWorkingDirectory(), getTorExecutableFileName());
+        cookieFile = new File(getWorkingDirectory(), ".tor/control_auth_cookie");
+        hostnameFile = new File(getWorkingDirectory(), "/" + hiddenserviceDirectoryName + "/hostname");
     }
 
-    /**
-     * Constructs instance of <code>OnionProxyContext</code> with the specified torConfig. Typically this constructor
-     * will be used when tor is currently installed on the system, with the tor executable and config files in different
-     * locations.
-     *
-     * @param torConfig tor configuration info used for running and installing tor
-     * @throws IllegalArgumentException if specified config in null
-     */
-    public OnionProxyContext(TorConfig torConfig, TorInstaller torInstaller, TorSettings settings) {
-        if (torConfig == null) {
-            throw new IllegalArgumentException("torConfig is null");
+    public void installFiles() throws IOException, InterruptedException {
+        // This is sleezy but we have cases where an old instance of the Tor OP needs an extra second to
+        // clean itself up. Without that time we can't do things like delete its binary (which we currently
+        // do by default, something we hope to fix with https://github.com/thaliproject/Tor_Onion_Proxy_Library/issues/13
+        Thread.sleep(1000,0);
+
+        if (workingDirectory.exists() == false && workingDirectory.mkdirs() == false) {
+            throw new RuntimeException("Could not create root directory!");
         }
-        if(torInstaller == null) {
-            throw new IllegalArgumentException("torInstaller is null");
-        }
-        this.config = torConfig;
-        this.settings = settings == null ? new DefaultSettings() : settings;
-        this.torInstaller = torInstaller;
-    }
 
+        FileUtilities.cleanInstallOneFile(getAssetOrResourceByName(geoIpName), geoIpFile);
+        FileUtilities.cleanInstallOneFile(getAssetOrResourceByName(geoIpv6Name), geoIpv6File);
+        FileUtilities.cleanInstallOneFile(getAssetOrResourceByName(torrcName), torrcFile);
 
-    /**
-     * Gets tor configuration info used for running and installing tor
-     *
-     * @return tor config info
-     */
-    public final TorConfig getConfig() {
-        return config;
-    }
+        OsData.OsType osType = OsData.getOsType();
 
-    /**
-     * Creates the configured tor data directory
-     *
-     * @return true is directory already exists or has been successfully created, otherwise false
-     */
-    public final boolean createDataDir() {
-        synchronized (dataDirLock) {
-            return config.getDataDir().exists() || config.getDataDir().mkdirs();
+        switch(osType) {
+            case Android:
+                FileUtilities.cleanInstallOneFile(
+                        getAssetOrResourceByName(getPathToTorExecutable() + getTorExecutableFileName()),
+                        torExecutableFile);
+                break;
+            case Windows:
+            case Linux32:
+            case Linux64:
+            case Mac:
+                FileUtilities.extractContentFromZip(getWorkingDirectory(),
+                        getAssetOrResourceByName(getPathToTorExecutable() + "tor.zip"));
+                break;
+            default:
+                throw new RuntimeException("We don't support Tor on this OS yet");
         }
     }
 
     /**
-     * Deletes the configured tor data directory
+     * Sets environment variables and working directory needed for Tor
+     * @param processBuilder we will call start on this to run Tor
      */
-    public final void deleteDataDir()  {
-        synchronized (dataDirLock) {
-            for (File file : config.getDataDir().listFiles()) {
-                if (file.isDirectory()) {
-                    if (!file.getAbsolutePath().equals(config.getHiddenServiceDir().getAbsolutePath())) {
-                        FileUtilities.recursiveFileDelete(file);
-                    }
-                } else {
-                    if (!file.delete()) {
-                        throw new RuntimeException("Could not delete file " + file.getAbsolutePath());
-                    }
+    public void setEnvironmentArgsAndWorkingDirectoryForStart(ProcessBuilder processBuilder) {
+        processBuilder.directory(getWorkingDirectory());
+        Map<String, String> environment = processBuilder.environment();
+        environment.put("HOME", getWorkingDirectory().getAbsolutePath());
+        switch (OsData.getOsType()) {
+            case Linux32:
+            case Linux64:
+                // We have to provide the LD_LIBRARY_PATH because when looking for dynamic libraries
+                // Linux apparently will not look in the current directory by default. By setting this
+                // environment variable we fix that.
+                environment.put("LD_LIBRARY_PATH", getWorkingDirectory().getAbsolutePath());
+            default:
+                break;
+        }
+    }
+
+    public String[] getEnvironmentArgsForExec() {
+        List<String> envArgs = new ArrayList<String>();
+        envArgs.add("HOME=" + getWorkingDirectory().getAbsolutePath() );
+        switch(OsData.getOsType()) {
+            case Linux32:
+            case Linux64:
+                // We have to provide the LD_LIBRARY_PATH because when looking for dynamic libraries
+                // Linux apparently will not look in the current directory by default. By setting this
+                // environment variable we fix that.
+                envArgs.add("LD_LIBRARY_PATH=" + getWorkingDirectory().getAbsolutePath());
+            default:
+                break;
+        }
+        return envArgs.toArray(new String[envArgs.size()]);
+    }
+
+    public File getGeoIpFile() {
+        return geoIpFile;
+    }
+
+    public File getGeoIpv6File() {
+        return geoIpv6File;
+    }
+
+    public File getTorrcFile() {
+        return torrcFile;
+    }
+
+    public File getCookieFile() {
+        return cookieFile;
+    }
+
+    public File getHostNameFile() {
+        return hostnameFile;
+    }
+
+    public File getTorExecutableFile() {
+        return torExecutableFile;
+    }
+
+    public File getWorkingDirectory() {
+        return workingDirectory;
+    }
+
+    public void deleteAllFilesButHiddenServices() throws InterruptedException {
+        // It can take a little bit for the Tor OP to detect the connection is dead and kill itself
+        Thread.sleep(1000,0);
+        for(File file : getWorkingDirectory().listFiles()) {
+            if (file.isDirectory()) {
+                if (file.getName().compareTo(hiddenserviceDirectoryName) != 0) {
+                    FileUtilities.recursiveFileDelete(file);
+                }
+            } else {
+                if (file.delete() == false) {
+                    throw new RuntimeException("Could not delete file " + file.getAbsolutePath());
                 }
             }
         }
     }
 
     /**
-     * Creates an empty cookie auth file
-     *
-     * @return true if cookie file is created, otherwise false
+     * Files we pull out of the AAR or JAR are typically at the root but for executables outside
+     * of Android the executable for a particular platform is in a specific sub-directory.
+     * @return Path to executable in JAR Resources
      */
-    public final boolean createCookieAuthFile() {
-        synchronized (cookieLock) {
-            File cookieAuthFile = config.getCookieAuthFile();
-            if (!cookieAuthFile.getParentFile().exists() &&
-                    !cookieAuthFile.getParentFile().mkdirs()) {
-                LOG.warn("Could not create cookieFile parent directory");
-                return false;
-            }
-
-            try {
-                return (cookieAuthFile.exists() || cookieAuthFile.createNewFile());
-            } catch (IOException e) {
-                LOG.warn("Could not create cookieFile");
-                return false;
-            }
+    protected String getPathToTorExecutable() {
+        String path = "native/";
+        switch (OsData.getOsType()) {
+            case Android:
+                return "";
+            case Windows:
+                return path + "windows/x86/"; // We currently only support the x86 build but that should work everywhere
+            case Mac:
+                return path +  "osx/x64/"; // I don't think there even is a x32 build of Tor for Mac, but could be wrong.
+            case Linux32:
+                return path + "linux/x86/";
+            case Linux64:
+                return path + "linux/x64/";
+            default:
+                throw new RuntimeException("We don't support Tor on this OS");
         }
     }
 
-    public final boolean createHostnameFile() {
-        synchronized (hostnameLock) {
-            File hostnameFile = config.getHostnameFile();
-            if (!hostnameFile.getParentFile().exists() &&
-                    !hostnameFile.getParentFile().mkdirs()) {
-                LOG.warn("Could not create hostnameFile parent directory");
-                return false;
-            }
-
-            try {
-                return (hostnameFile.exists() || hostnameFile.createNewFile());
-            } catch (IOException e) {
-                LOG.warn("Could not create hostnameFile");
-                return false;
-            }
+    protected String getTorExecutableFileName() {
+        switch(OsData.getOsType()) {
+            case Android:
+            case Linux32:
+            case Linux64:
+                return "tor";
+            case Windows:
+                return "tor.exe";
+            case Mac:
+                return "tor.real";
+            default:
+                throw new RuntimeException("We don't support Tor on this OS");
         }
     }
 
-    /**
-     * Creates a default resolve.conf file using the Google nameserver. This is a convenience method.
-     */
-    public final File createGoogleNameserverFile() throws IOException {
-        synchronized (dnsLock) {
-            File file = config.getResolveConf();
-            BufferedWriter writer = new BufferedWriter(new FileWriter(file));
-            writer.write("nameserver 8.8.8.8\n");
-            writer.write("nameserver 8.8.4.4\n");
-            writer.close();
-            return file;
-        }
-    }
-
-    /**
-     * Creates an observer for the configured control port file
-     *
-     * @return write observer for cookie auth file
-     */
-    public final WriteObserver createControlPortFileObserver() throws IOException {
-        synchronized (cookieLock) {
-            return generateWriteObserver(config.getControlPortFile());
-        }
-    }
-
-    public final WriteObserver createCookieAuthFileObserver() throws IOException {
-        synchronized (cookieLock) {
-            return generateWriteObserver(config.getCookieAuthFile());
-        }
-    }
-    /**
-     * Creates an observer for the configured hostname file
-     *
-     * @return write observer for hostname file
-     */
-    public final WriteObserver createHostnameDirObserver() throws IOException {
-        synchronized (hostnameLock) {
-            return generateWriteObserver(config.getHostnameFile());
-        }
-    }
-
-    public final TorSettings getSettings() {
-        return settings;
-    }
-
-    public final TorConfigBuilder newConfigBuilder() {
-        return new TorConfigBuilder(this);
-    }
-    
-    /**
-     * Returns the system process id of the process running this onion proxy
-     *
-     * @return process id
-     */
-    public abstract String getProcessId();
-
-    public abstract WriteObserver generateWriteObserver(File file) throws IOException;
-
-    public final TorInstaller getInstaller() {
-        return torInstaller;
-    }
-
+    abstract public String getProcessId();
+    abstract public WriteObserver generateWriteObserver(File file);
+    abstract protected InputStream getAssetOrResourceByName(String fileName) throws IOException;
 }

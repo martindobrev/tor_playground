@@ -29,8 +29,8 @@ See the Apache 2 License for the specific language governing permissions and lim
 
 package com.msopentech.thali.toronionproxy;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
 import java.io.IOException;
@@ -40,17 +40,17 @@ import java.util.concurrent.TimeUnit;
 /**
  * Watches to see if a particular file is changed
  */
+@Slf4j
 public class JavaWatchObserver implements WriteObserver {
     private WatchService watchService;
     private WatchKey key;
     private File fileToWatch;
     private long lastModified;
     private long length;
-    private static final Logger LOG = LoggerFactory.getLogger(WriteObserver.class);
 
 
     public JavaWatchObserver(File fileToWatch) throws IOException {
-        if (fileToWatch == null || !fileToWatch.exists()) {
+        if (fileToWatch == null || fileToWatch.exists() == false) {
             throw new RuntimeException("fileToWatch must not be null and must already exist.");
         }
         this.fileToWatch = fileToWatch;
@@ -59,7 +59,7 @@ public class JavaWatchObserver implements WriteObserver {
 
         watchService = FileSystems.getDefault().newWatchService();
         // Note that poll depends on us only registering events that are of type path
-        if (OsData.getOsType() != OsData.OsType.MAC) {
+        if (OsData.getOsType() != OsData.OsType.Mac) {
             key = fileToWatch.getParentFile().toPath().register(watchService, StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_DELETE,
                     StandardWatchEventKinds.ENTRY_MODIFY);
         } else {
@@ -91,7 +91,9 @@ public class JavaWatchObserver implements WriteObserver {
                         WatchEvent.Kind<?> kind = event.kind();
 
                         if (kind == StandardWatchEventKinds.OVERFLOW ) {
-                            LOG.error("We got an overflow, there shouldn't have been enough activity to make that happen.");
+
+                            log.error("We got an overflow, there shouldn't have been enough activity to make that happen.");
+                            //System.out.println(//log.error("We got an overflow, there shouldn't have been enough activity to make that happen."););
                         }
 
 
@@ -104,8 +106,8 @@ public class JavaWatchObserver implements WriteObserver {
 
                     // In case we haven't yet gotten the event we are looking for we have to reset in order to
                     // receive any further notifications.
-                    if (!key.reset()) {
-                        LOG.error("The key became invalid which should not have happened.");
+                    if (key.reset() == false) {
+                        log.error("The key became invalid which should not have happened.");
                     }
                 }
 
@@ -129,7 +131,7 @@ public class JavaWatchObserver implements WriteObserver {
                 try {
                     watchService.close();
                 } catch (IOException e) {
-                    LOG.debug("Attempt to close watchService failed.", e);
+                    log.debug("Attempt to close watchService failed.", e);
                 }
             }
         }

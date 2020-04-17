@@ -67,45 +67,22 @@ http://www.gnu.org/licenses/lgpl.html
 
 package com.msopentech.thali.toronionproxy;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-public final class FileUtilities {
-    private static final Logger LOG = LoggerFactory.getLogger(FileUtilities.class);
+@Slf4j
+public class FileUtilities {
 
-    private FileUtilities() {}
-
-    public static boolean setToReadOnlyPermissions(File file) {
-        return file.setReadable(false, false) &&
-                file.setWritable(false, false) &&
-                file.setExecutable(false, false) &&
-
-                file.setReadable(true, true) &&
-                file.setWritable(true, true) &&
-                file.setExecutable(true, true);
-    }
-
-    /**
-     * Sets readable/executable for all users and writable by owner
-     *
-     * @param file the file to set the permissions on
-     */
-    public static void setPerms(File file) {
-        file.setReadable(true);
-        file.setExecutable(true);
-        file.setWritable(false);
-        file.setWritable(true, true);
-    }
 
     /**
      * Closes both input and output streams when done.
      * @param in Stream to read from
      * @param out Stream to write to
-     * @throws IOException - If close on input or output fails
+     * @throws java.io.IOException - If close on input or output fails
      */
     public static void copy(InputStream in, OutputStream out) throws IOException {
         try {
@@ -119,7 +96,7 @@ public final class FileUtilities {
      * Won't close the input stream when it's done, needed to handle ZipInputStreams
      * @param in Won't be closed
      * @param out Will be closed
-     * @throws IOException - If close on output fails
+     * @throws java.io.IOException - If close on output fails
      */
     public static void copyDoNotCloseInput(InputStream in, OutputStream out) throws IOException {
         try {
@@ -140,7 +117,7 @@ public final class FileUtilities {
                 listFilesToLog(child);
             }
         } else {
-            LOG.info(f.getAbsolutePath());
+           log.info(f.getAbsolutePath());
         }
     }
 
@@ -164,10 +141,10 @@ public final class FileUtilities {
      * Reads the input stream, deletes fileToWriteTo if it exists and over writes it with the stream.
      * @param readFrom Stream to read from
      * @param fileToWriteTo File to write to
-     * @throws IOException - If any of the file operations fail
+     * @throws java.io.IOException - If any of the file operations fail
      */
     public static void cleanInstallOneFile(InputStream readFrom, File fileToWriteTo) throws IOException {
-        if (fileToWriteTo.exists() && !fileToWriteTo.delete()) {
+        if (fileToWriteTo.exists() && fileToWriteTo.delete() == false) {
             throw new RuntimeException("Could not remove existing file " + fileToWriteTo.getName());
         }
         OutputStream out = new FileOutputStream(fileToWriteTo);
@@ -181,7 +158,7 @@ public final class FileUtilities {
             }
         }
 
-        if (fileOrDirectory.exists() && !fileOrDirectory.delete()) {
+        if (fileOrDirectory.exists() && fileOrDirectory.delete() == false) {
             throw new RuntimeException("Could not delete directory " + fileOrDirectory.getAbsolutePath());
         }
     }
@@ -190,7 +167,7 @@ public final class FileUtilities {
      * This has to exist somewhere! Why isn't it a part of the standard Java library?
      * @param destinationDirectory Directory files are to be extracted to
      * @param zipFileInputStream Stream to unzip
-     * @throws IOException - If there are any file errors
+     * @throws java.io.IOException - If there are any file errors
      */
     public static void extractContentFromZip(File destinationDirectory, InputStream zipFileInputStream)
             throws IOException {
@@ -201,17 +178,17 @@ public final class FileUtilities {
             while ((zipEntry = zipInputStream.getNextEntry()) != null) {
                 File file = new File(destinationDirectory, zipEntry.getName());
                 if (zipEntry.isDirectory()) {
-                    if (file.exists() == false && !file.mkdirs()) {
+                    if (file.exists() == false && file.mkdirs() == false) {
                         throw new RuntimeException("Could not create directory " + file);
                     }
                 } else {
-                    if (file.exists() && !file.delete()) {
+                    if (file.exists() && file.delete() == false) {
                         throw new RuntimeException(
                                 "Could not delete file in preparation for overwriting it. File - " +
                                         file.getAbsolutePath());
                     }
 
-                    if (!file.createNewFile()) {
+                    if (file.createNewFile() == false) {
                         throw new RuntimeException("Could not create file " + file);
                     }
 

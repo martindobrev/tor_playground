@@ -24,8 +24,6 @@ public class Utilities {
     private static final int READ_TIMEOUT_MILLISECONDS = 60000;
     private static final int CONNECT_TIMEOUT_MILLISECONDS = 60000;
 
-    private Utilities() {}
-
     /**
      * When making a request via the Tor Proxy one needs to establish the socket using SOCKS4a. However Android
      * only supports SOCKS4 so this class provides a wrapper when getting a socket to handle things.
@@ -78,8 +76,7 @@ public class Utilities {
         if (firstByte != (byte)0x00 || secondByte != (byte)0x5a) {
             socket.close();
             throw new IOException("SOCKS4a connect failed, got " + firstByte + " - " + secondByte +
-                    ", but expected 0x00 - 0x5a:, networkHost= " + networkHost + ", networkPort = " + networkPort
-                    + ", socksHost=" + socksHost + ",socksPort=" + socksPort);
+                    ", but expected 0x00 - 0x5a");
         }
         inputStream.readShort();
         inputStream.readInt();

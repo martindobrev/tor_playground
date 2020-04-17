@@ -33,7 +33,7 @@ import java.io.IOException;
 import java.util.Scanner;
 
 public class OsData {
-    public enum OsType {WINDOWS, LINUX_32, LINUX_64, MAC, ANDROID, UNSUPPORTED}
+    public enum OsType { Windows, Linux32, Linux64, Mac, Android }
     private static OsType detectedType = null;
 
     public static OsType getOsType() {
@@ -51,29 +51,28 @@ public class OsData {
     protected static OsType actualGetOsType() {
 
         if (System.getProperty("java.vm.name").contains("Dalvik")) {
-            return OsType.ANDROID;
+            return OsType.Android;
         }
 
         String osName = System.getProperty("os.name");
         if (osName.contains("Windows")) {
-            return OsType.WINDOWS;
+            return OsType.Windows;
         } else if (osName.contains("Mac")) {
-            return OsType.MAC;
+            return OsType.Mac;
         } else if (osName.contains("Linux")) {
             return getLinuxType();
         }
-        return OsType.UNSUPPORTED;
+        throw new RuntimeException("Unsupported OS");
     }
 
     protected static OsType getLinuxType() {
         String [] cmd = { "uname", "-m" };
         Process unameProcess = null;
-        Scanner scanner = null;
         try {
             String unameOutput;
             unameProcess = Runtime.getRuntime().exec(cmd);
 
-            scanner = new Scanner(unameProcess.getInputStream());
+            Scanner scanner = new Scanner(unameProcess.getInputStream());
             if (scanner.hasNextLine()) {
                 unameOutput = scanner.nextLine();
             } else {
@@ -86,19 +85,18 @@ public class OsData {
             }
 
             if (unameOutput.compareTo("i686") == 0) {
-                return OsType.LINUX_32;
+                return OsType.Linux32;
             }
             if (unameOutput.compareTo("x86_64") == 0) {
-                return OsType.LINUX_64;
+                return OsType.Linux64;
             }
-            return OsType.UNSUPPORTED;
+            throw new RuntimeException("Could not understand uname output, not sure what bitness");
         } catch (IOException e) {
             throw new RuntimeException("Uname failure", e);
         } catch (InterruptedException e) {
             throw new RuntimeException("Uname failure", e);
         } finally {
             if (unameProcess != null) {
-                scanner.close();
                 unameProcess.destroy();
             }
         }
